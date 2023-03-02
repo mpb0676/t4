@@ -1,0 +1,321 @@
+﻿<#@ template debug="true" hostSpecific="true" #>
+<#@ output extension=".generated.cs" #>
+<#@ Assembly Name="System.Data" #>
+<#@ import namespace="System.Data" #>
+<#@ import namespace="System.Data.SqlClient" #>
+<#@ import namespace="System.IO" #>
+<#@ import namespace="System.Text.RegularExpressions" #>
+
+using MFRevMgr.DAL;
+using MFRevMgr.Models;
+using Microsoft.Extensions.Options;
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.SqlClient;
+using System.Threading.Tasks; 
+
+namespace MFRevMgr.DAL.Generated
+{
+<#
+    DataTable tables = GetTables();
+	DataTable columns = null;
+    DataRow[] pkRows = null;
+    bool isFirstColumn = true;
+
+#>
+
+    public interface IDataAccess<T>
+    {
+        Task<List<T>> GetAsync(int? id);
+        Task InsertAsync(T data);
+        Task InsertAsync(List<T> data);
+        Task InsertAsync(DataTable data);
+        Task UpdateAsync(T data);
+        Task DeleteAsync(int id);
+        Task Process(int id);
+    }
+
+<#
+
+    foreach (DataRow row in tables.Rows)
+    {
+    columns = GetColumns(row["TABLE_NAME"].ToString());
+    pkRows = columns.Select("isPrimaryKey = 1", "");;
+#>  
+    public partial class <#= row["TABLE_NAME"].ToString() #>DataAccess<T> :  BaseDataAccess, IDataAccess<T> where T : <#= row["TABLE_NAME"].ToString() #>
+    {
+
+        public <#= row["TABLE_NAME"].ToString() #>DataAccess(IOptions<ConnectionStringOptions> options) : base(options)
+        {
+
+        }
+
+        public async Task DeleteAsync(int id)
+        {
+            using SqlConnection conn = new(_options.Db);
+            using SqlCommand cmd = new();
+            cmd.Connection = conn;
+            cmd.CommandType = CommandType.Text;
+            cmd.CommandText = @"DELETE FROM <#= row["TABLE_NAME"].ToString() #> WHERE ";
+
+<#          foreach(DataRow pk  in pkRows) 
+            {
+#>
+            cmd.CommandText += " <#= pk["COLUMN_NAME"].ToString() #> = @<#= pk["COLUMN_NAME"].ToString() #>";
+            cmd.Parameters.AddWithValue("@<#= pk["COLUMN_NAME"].ToString() #>", id);
+<#
+            }
+#>
+
+            try
+            {
+                if (cmd.Connection.State != ConnectionState.Open) cmd.Connection.Open();
+                await cmd.ExecuteNonQueryAsync();
+            }
+            finally
+            {
+                if (cmd.Connection.State != ConnectionState.Closed) cmd.Connection.Close();
+            }
+        }
+
+        public async Task<List<T>> GetAsync(int? id)
+        {
+            DataTable dt = new("<#= row["TABLE_NAME"].ToString() #>");
+
+            using SqlConnection conn = new(_options.Db);
+            using SqlDataAdapter da = new(conn.CreateCommand());
+
+            da.SelectCommand.CommandType = CommandType.Text;
+            da.SelectCommand.CommandText = @"SELECT 
+<#
+            isFirstColumn = true;
+            for(int i = 0;i< columns.Rows.Count;i++)
+            {
+#>
+                <#= (!isFirstColumn) ? ("," + columns.Rows[i].ItemArray[1].ToString()) : " " + columns.Rows[i].ItemArray[1].ToString() #>
+<#
+                isFirstColumn = false;
+            }
+#>
+              FROM [dbo].[<#= row["TABLE_NAME"].ToString() #>] ";
+
+            if (id.HasValue)
+            {
+<#          foreach(DataRow pk  in pkRows) 
+            {
+#>
+                da.SelectCommand.CommandText += "  where <#= pk["COLUMN_NAME"].ToString() #> = @<#= pk["COLUMN_NAME"].ToString() #>";
+                da.SelectCommand.Parameters.AddWithValue("@<#= pk["COLUMN_NAME"].ToString() #>", id);
+<#
+            }
+#>            }
+
+            await Task.Run(() => da.Fill(dt));
+
+            return Converter.DataTableToList<T>(dt);
+        }
+
+        public async Task InsertAsync(T data)
+        {
+            using SqlConnection conn = new(_options.Db);
+            using SqlCommand cmd = new("", conn);
+            cmd.CommandType = CommandType.Text;
+
+            cmd.CommandText = @"INSERT INTO [dbo].[<#= row["TABLE_NAME"].ToString()#>](
+<#
+            isFirstColumn = true;
+            for(int i = 0;i< columns.Rows.Count;i++)
+            {
+                if(columns.Rows[i].ItemArray[4].ToString() == "")
+                {
+#>
+                                        <#= (!isFirstColumn) ? ("," + columns.Rows[i].ItemArray[1].ToString()) : columns.Rows[i].ItemArray[1].ToString() #>
+<#
+                    isFirstColumn = false;
+                }
+            }
+#>
+                                 )
+                                 VALUES(
+<#
+            isFirstColumn = true;
+            for(int i = 0;i< columns.Rows.Count;i++)
+            {
+                if(columns.Rows[i].ItemArray[4].ToString() == "")
+                {
+#>
+                                        <#= (!isFirstColumn) ? (",@" + columns.Rows[i].ItemArray[1].ToString()) :  "@" + columns.Rows[i].ItemArray[1].ToString() #>
+<#
+                    isFirstColumn =false;
+                }
+            }
+#>
+                                 );";
+
+
+<#
+            for(int i = 0;i< columns.Rows.Count;i++)
+            {
+                if(columns.Rows[i].ItemArray[4].ToString() == "")
+                {
+                    if(columns.Rows[i].ItemArray[3].ToString() == "YES")
+                    {
+#>
+            cmd.Parameters.AddWithValue("@<#=columns.Rows[i].ItemArray[1].ToString() #>", data.<#=columns.Rows[i].ItemArray[1].ToString() #> != null ? data.<#=columns.Rows[i].ItemArray[1].ToString() #> : DBNull.Value);
+<#
+                    }
+                    else
+                    {
+#>
+            cmd.Parameters.AddWithValue("@<#=columns.Rows[i].ItemArray[1].ToString() #>", data.<#=columns.Rows[i].ItemArray[1].ToString() #>);
+<#
+                    }
+                }
+            }
+#>
+
+            try
+            {
+                if (cmd.Connection.State != ConnectionState.Open) cmd.Connection.Open();
+                await cmd.ExecuteScalarAsync();
+            }
+            finally
+            {
+                if (cmd.Connection.State != ConnectionState.Closed) cmd.Connection.Close();
+            }
+
+        }
+
+        public Task InsertAsync(List<T> data)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task InsertAsync(DataTable data)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task Process(int id)
+        {
+            throw new NotImplementedException();
+        }
+
+        public async Task UpdateAsync(T data)
+        {
+            using SqlConnection conn = new(_options.Db);
+            using SqlCommand cmd = new("", conn);
+            cmd.CommandType = CommandType.Text;
+            cmd.CommandText = @"UPDATE [dbo].[<#= row["TABLE_NAME"].ToString()#>]
+                                   SET   
+<#
+            isFirstColumn = true;
+            for(int i = 0;i< columns.Rows.Count;i++)
+            {
+                if(columns.Rows[i].ItemArray[4].ToString() == "")
+                {
+#>
+                                    <#= (!isFirstColumn) ? ("," + columns.Rows[i].ItemArray[1].ToString() +"= isNull(@" + columns.Rows[i].ItemArray[1].ToString() + "," + columns.Rows[i].ItemArray[1].ToString() + ")") 
+                                                : columns.Rows[i].ItemArray[1].ToString() +"= isNull(@" + columns.Rows[i].ItemArray[1].ToString() + "," + columns.Rows[i].ItemArray[1].ToString() + ")" #>
+<#
+                    isFirstColumn = false;
+                }
+            }
+#>
+                                 WHERE 
+<#          foreach(DataRow pk  in pkRows) 
+            {
+#>
+                                    <#= pk["COLUMN_NAME"].ToString() #> = @<#= pk["COLUMN_NAME"].ToString() #>
+<#
+            }
+#>
+                                    ;";
+
+
+<#
+            for(int i = 0;i< columns.Rows.Count;i++)
+            {
+                    if(columns.Rows[i].ItemArray[3].ToString() == "YES")
+                    {
+#>
+            cmd.Parameters.AddWithValue("@<#=columns.Rows[i].ItemArray[1].ToString() #>", data.<#=columns.Rows[i].ItemArray[1].ToString() #> != null ? data.<#=columns.Rows[i].ItemArray[1].ToString() #> : DBNull.Value);
+<#
+                    }
+                    else
+                    {
+#>
+            cmd.Parameters.AddWithValue("@<#=columns.Rows[i].ItemArray[1].ToString() #>", data.<#=columns.Rows[i].ItemArray[1].ToString() #>);
+<#
+                    }
+            }
+#>
+
+
+            try
+            {
+                if (cmd.Connection.State != ConnectionState.Open) cmd.Connection.Open();
+                await cmd.ExecuteNonQueryAsync();
+            }
+            finally
+            {
+                if (cmd.Connection.State != ConnectionState.Closed) cmd.Connection.Close();
+            }        
+        }
+    }
+<#
+    }
+#>
+}
+<#+
+    private string Pascalize(object value)
+    {
+        Regex rx = new Regex(@"(?:[^a-zA-Z0-9]*)(?<first>[a-zA-Z0-9])(?<reminder>[a-zA-Z0-9]*)(?:[^a-zA-Z0-9]*)");
+        return rx.Replace(value.ToString(), m => m.Groups["first"].ToString().ToUpper() + m.Groups["reminder"].ToString().ToLower());
+    }
+
+    private DataTable GetTables()
+    {
+            DataTable dt = new("TableNames");
+            string connectionString = "";
+
+            using SqlConnection conn = new(connectionString);
+            using SqlDataAdapter da = new(conn.CreateCommand());
+
+            da.SelectCommand.CommandType = CommandType.Text;
+            da.SelectCommand.CommandText = @"SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES t where t.TABLE_TYPE = 'BASE TABLE' ORDER BY t.TABLE_NAME";
+
+            da.Fill(dt);
+
+            return dt;
+    }
+
+    private DataTable GetColumns(string tableName)
+    {
+            DataTable dt = new("Columns");
+            string connectionString = "";
+
+            using SqlConnection conn = new(connectionString);
+            using SqlDataAdapter da = new(conn.CreateCommand());
+
+            da.SelectCommand.CommandType = CommandType.Text;
+            da.SelectCommand.CommandText = @"select c.TABLE_NAME,
+		                                            c.COLUMN_NAME,
+		                                            c.ORDINAL_POSITION,
+		                                            c.IS_NULLABLE,
+		                                            isNull(k.CONSTRAINT_NAME,'') as CONSTRAINT_NAME,
+                                                    case when isNull(k.CONSTRAINT_NAME,'') like 'PK%' then 1 else 0 end as isPrimaryKey
+		                                            from INFORMATION_SCHEMA.columns c 
+		                                            left join INFORMATION_SCHEMA.KEY_COLUMN_USAGE k on c.TABLE_NAME = k.TABLE_NAME 
+                                                                                                   and c.COLUMN_NAME = k.COLUMN_NAME 
+                                                                                                   and k.CONSTRAINT_NAME like 'PK%'
+	                                            where c.TABLE_NAME = @tableName";
+            da.SelectCommand.Parameters.AddWithValue("@tableName",tableName);
+
+            da.Fill(dt);
+
+            return dt;
+    }
+
+#>

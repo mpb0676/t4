@@ -1,0 +1,173 @@
+﻿<#@ template debug="true" hostSpecific="true" #>
+<#@ output extension=".generated.cs" #>
+<#@ Assembly Name="System.Data" #>
+<#@ import namespace="System.Data" #>
+<#@ import namespace="System.Data.SqlClient" #>
+<#@ import namespace="System.IO" #>
+<#@ import namespace="System.Text.RegularExpressions" #>
+<#
+    DataTable tables = GetTables();
+
+    var directory = Path.GetDirectoryName(this.Host.TemplateFile);
+	var entitiesPath = @"\ProjectName\FolderName";
+	var regExFilter = "(?<=src).+$";
+	var entitiesFolder = Regex.Replace(directory, regExFilter, entitiesPath);
+
+    foreach (DataRow row in tables.Rows)
+    {
+
+#>
+using MFRevMgr.BLL.Generated;
+using MFRevMgr.Models;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+namespace MFRevMgr.Controllers
+{
+
+    public partial class <#= row["TABLE_NAME"].ToString() #>Controller :  Controller
+    {
+        private readonly ILogger<<#= row["TABLE_NAME"].ToString() #>Controller> _logger;
+        private readonly IConfiguration _config;
+        private readonly ILogic<<#= row["TABLE_NAME"].ToString() #>> _logic = null;
+        private readonly string timeStamp = DateTime.Now.ToString("yyyyMMddHHmmssffff");
+
+        public <#= row["TABLE_NAME"].ToString() #>Controller(ILogger<<#= row["TABLE_NAME"].ToString() #>Controller> logger, IConfiguration config, ILogic<<#= row["TABLE_NAME"].ToString() #>> logic)
+        {
+            _logger = logger;
+            _config = config;
+            _logic  = logic;
+        }
+
+        public async Task<ActionResult> Index()
+        {
+            List<<#= row["TABLE_NAME"].ToString() #>> objectList;
+
+            try
+            {
+                objectList = await _logic.GetAsync(null);
+            }
+            catch (Exception ex)
+            {
+                string msg = $"Error retrieving <#= row["TABLE_NAME"].ToString() #>s. ({timeStamp})";
+                _logger.LogError(ex, msg);
+                return BadRequest(new { error = msg });
+            }
+
+            //Add a Dummy Row.
+            objectList.Insert(0, new <#= row["TABLE_NAME"].ToString() #>());
+            
+            return View(objectList);
+        }
+
+        [HttpGet]
+        public IActionResult AddDialog()
+        {
+            _logger.LogTrace($"AddDialog Enter");
+
+            _logger.LogTrace($"AddDialog Exit");
+
+            return PartialView("_Add");
+        }
+
+        [HttpPost]
+        public async Task<JsonResult> Insert(<#= row["TABLE_NAME"].ToString() #> value)
+        {
+            try
+            {
+                await _logic.InsertAsync(value);
+            }
+            catch (Exception ex)
+            {
+                string msg = $"Error inserting <#= row["TABLE_NAME"].ToString() #>s. ({timeStamp})";
+                _logger.LogError(ex, msg);
+                return Json(new { error = msg });
+            }
+            return Json(value);
+        }
+
+        [HttpPut]
+        public async Task<ActionResult> Update(<#= row["TABLE_NAME"].ToString() #> value)
+        {
+
+            try
+            {
+                await _logic.UpdateAsync(value);
+            }
+            catch (Exception ex)
+            {
+                string msg = $"Error updating <#= row["TABLE_NAME"].ToString() #>s. ({timeStamp})";
+                _logger.LogError(ex, msg);
+                return Json(new { error = msg });
+            }
+
+            return new EmptyResult();
+        }
+
+        [HttpDelete]
+        public async Task<ActionResult> Delete(int id)
+        {
+            string msg;
+
+            try
+            {
+                await _logic.DeleteAsync(id);
+                msg = $"<#= row["TABLE_NAME"].ToString() #> [{id}] successfully deleted";
+
+            }
+            catch (Exception ex)
+            {
+                msg = $"Error deleting Agreement for Agreement_Id={id}. ({timeStamp})";
+                _logger.LogError(ex, msg);
+                return BadRequest((agreement_Id: id, error: msg));
+            }
+
+            return Ok(new {  msg });
+        }
+    }
+}
+<#
+	SaveFile(entitiesFolder, row["TABLE_NAME"].ToString(), this.GenerationEnvironment.ToString());
+	this.GenerationEnvironment.Remove(0, this.GenerationEnvironment.Length);
+    }
+#>
+
+<#+
+    private string Pascalize(object value)
+    {
+        Regex rx = new Regex(@"(?:[^a-zA-Z0-9]*)(?<first>[a-zA-Z0-9])(?<reminder>[a-zA-Z0-9]*)(?:[^a-zA-Z0-9]*)");
+        return rx.Replace(value.ToString(), m => m.Groups["first"].ToString().ToUpper() + m.Groups["reminder"].ToString().ToLower());
+    }
+
+    private DataTable GetTables()
+    {
+            DataTable dt = new("TableNames");
+            string connectionString = "";
+
+            using SqlConnection conn = new(connectionString);
+            using SqlDataAdapter da = new(conn.CreateCommand());
+
+            da.SelectCommand.CommandType = CommandType.Text;
+            da.SelectCommand.CommandText = @"SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES t where t.TABLE_TYPE = 'BASE TABLE' ORDER BY t.TABLE_NAME";
+
+            da.Fill(dt);
+
+            return dt;
+    }
+
+    public void SaveFile(string folder, string fileName, string content)
+	{
+		using (FileStream fs = new FileStream(Path.Combine(folder, fileName.Trim() + "Controller.cs"), FileMode.Create))
+		{
+			using (StreamWriter str = new StreamWriter(fs))
+			{
+				str.WriteLine(content);
+				str.Flush();
+			}
+		}
+	}
+#>

@@ -1,0 +1,270 @@
+﻿<#@ template debug="true" hostSpecific="true" #>
+<#@ output extension=".js" #>
+<#@ Assembly Name="System.Data" #>
+<#@ import namespace="System.Data" #>
+<#@ import namespace="System.Data.SqlClient" #>
+<#@ import namespace="System.IO" #>
+<#@ import namespace="System.Text.RegularExpressions" #>
+<#
+    DataTable tables = GetTables();
+	DataTable columns = null;
+    DataRow[] pkRows = null;
+
+
+    var directory = Path.GetDirectoryName(this.Host.TemplateFile);
+	var entitiesPath = @"\ProjectName\FolderName";
+	var regExFilter = "(?<=src).+$";
+	var entitiesFolder = Regex.Replace(directory, regExFilter, entitiesPath);
+
+    foreach (DataRow row in tables.Rows)
+    {
+        columns = GetColumns(row["TABLE_NAME"].ToString());
+
+#>
+$(document).ready(function () {
+    //Remove the dummy row if data present.
+    if ($("#tblModel tr").length > 2) {
+        $("#tblModel tr:eq(1)").remove();
+    } else {
+        var row = $("#tblModel tr:last-child");
+        row.find(".Edit").hide();
+        row.find(".Delete").hide();
+        row.find("span").html('&nbsp;');
+    };
+
+    $('#tblModel').DataTable({
+        columnDefs: [{
+            className: 'dtr-control',
+            orderable: false,
+            targets: 0
+        }],
+    });
+
+    $("#closbtn").click(function () {
+        $('#myModal').modal('hide');
+        location.reload(true);
+    });
+
+        //Edit event handler.
+    $("body").on("click", "#tblModel .Edit", function () {
+        var row = $(this).closest("tr");
+        $("td", row).each(function () {
+            if ($(this).find("input").length > 0) {
+                $(this).find("input").show();
+                $(this).find("span").hide();
+            }
+        });
+        row.find(".Update").show();
+        row.find(".Cancel").show();
+        row.find(".Delete").hide();
+        $(this).hide();
+    });
+
+    //Update event handler.
+    $("body").on("click", "#tblModel .Update", function () {
+        var row = $(this).closest("tr");
+        $("td", row).each(function () {
+            if ($(this).find("input").length > 0) {
+                var span = $(this).find("span");
+                var input = $(this).find("input");
+                span.html(input.val());
+                span.show();
+                input.hide();
+            }
+        });
+        row.find(".Edit").show();
+        row.find(".Delete").show();
+        row.find(".Cancel").hide();
+        $(this).hide();
+
+        $.ajax({
+            type: "PUT",
+            dataType: 'json',
+            dataSrc: 'json.data',
+            url: "/<#= row["TABLE_NAME"].ToString() #>/Update",
+            data: {
+                "value":
+                {
+<#
+	foreach (DataRow cRows in columns.Rows)
+    {
+#>
+                    "<#= cRows["COLUMN_NAME"].ToString() #>": row.find(".<#= cRows["COLUMN_NAME"].ToString() #>").find("span").html(),
+<#
+}
+#>
+                }
+            }
+        });
+    });
+
+        //Cancel event handler.
+    $("body").on("click", "#tblModel .Cancel", function () {
+        var row = $(this).closest("tr");
+        $("td", row).each(function () {
+            if ($(this).find("input").length > 0) {
+                var span = $(this).find("span");
+                var input = $(this).find("input");
+                input.val(span.html());
+                span.show();
+                input.hide();
+            }
+        });
+        row.find(".Edit").show();
+        row.find(".Delete").show();
+        row.find(".Update").hide();
+        $(this).hide();
+    });
+
+        //Delete event handler.
+    $("body").on("click", "#tblModel .Delete", function () {
+        if (confirm("Do you want to delete this row?")) {
+            var row = $(this).closest("tr");
+            var id = row.find("span").html();
+            $.ajax({
+                type: "DELETE",
+                url: "/<#= row["TABLE_NAME"].ToString() #>/Delete",
+                data: {
+                    "id": id,
+                },
+                dataType: 'json',
+                dataSrc: 'json.data'
+            })
+                .done(function (data) {
+                    location.reload(true);
+                })
+                .fail(function (data) {
+                    if (data.error != "") {
+                        alert(data.responseJSON.msg);
+                    }
+                })
+        }
+    });
+
+    //Open AddDialog Modal.
+    $('#cmdAdd').on('click', function () {
+        var options = { "backdrop": "static", keyboard: true };
+        $.ajax({
+            type: "GET",
+            url: "/<#= row["TABLE_NAME"].ToString() #>/AddDialog",
+            contentType: "application/json; charset=utf-8",
+            datatype: "json",
+            success: function (data) {
+                $('#myModalContent').html(data);
+                $('#myModal').modal(options);
+                $('#myModal').modal('show');
+            },
+            error: function (data) {
+                if (data.error != "") {
+                    alert(data.statusText);
+                }
+            }
+
+        });
+    });
+
+});
+
+function Insert() {
+    var token = $('input:hidden[name="__RequestVerificationToken"]').val();
+
+    $.ajax({
+        url: "/<#= row["TABLE_NAME"].ToString() #>/Insert",
+        type: 'POST',
+        dataType: 'json',
+        dataSrc: 'json.data',
+        data: {
+            "<#= row["TABLE_NAME"].ToString() #>":
+            {
+<#
+	foreach (DataRow cRows in columns.Rows)
+    {
+        if(cRows["isPrimaryKey"].ToString() == "0")
+        {
+#>
+                "<#= cRows["COLUMN_NAME"].ToString() #>": $("#<#= cRows["COLUMN_NAME"].ToString() #>").val(),
+<#
+        }
+}
+#>
+            }
+        },
+        headers: {
+            RequestVerificationToken: token
+        }
+    })
+        .done(function (data) {
+            $('#reset').click();
+            location.reload(true);
+        })
+        .fail(function (data) {
+            if (data.error != "") {
+                alert(data.responseJSON.msg);
+            };
+            $(this).prop("disabled", false);
+        })
+};
+
+<#
+	SaveFile(entitiesFolder, row["TABLE_NAME"].ToString(), this.GenerationEnvironment.ToString());
+	this.GenerationEnvironment.Remove(0, this.GenerationEnvironment.Length);
+    }
+#>
+
+
+<#+
+    private DataTable GetTables()
+    {
+            DataTable dt = new("TableNames");
+            string connectionString = "";
+
+            using SqlConnection conn = new(connectionString);
+            using SqlDataAdapter da = new(conn.CreateCommand());
+
+            da.SelectCommand.CommandType = CommandType.Text;
+            da.SelectCommand.CommandText = @"SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES t where t.TABLE_TYPE = 'BASE TABLE' ORDER BY t.TABLE_NAME";
+
+            da.Fill(dt);
+
+            return dt;
+    }
+
+    private DataTable GetColumns(string tableName)
+    {
+            DataTable dt = new("Columns");
+            string connectionString = "";
+
+            using SqlConnection conn = new(connectionString);
+            using SqlDataAdapter da = new(conn.CreateCommand());
+
+            da.SelectCommand.CommandType = CommandType.Text;
+            da.SelectCommand.CommandText = @"select c.TABLE_NAME,
+		                                            c.COLUMN_NAME,
+		                                            c.ORDINAL_POSITION,
+		                                            c.IS_NULLABLE,
+		                                            isNull(k.CONSTRAINT_NAME,'') as CONSTRAINT_NAME,
+                                                    case when isNull(k.CONSTRAINT_NAME,'') like 'PK%' then 1 else 0 end as isPrimaryKey
+		                                            from INFORMATION_SCHEMA.columns c 
+		                                            left join INFORMATION_SCHEMA.KEY_COLUMN_USAGE k on c.TABLE_NAME = k.TABLE_NAME 
+                                                                                                   and c.COLUMN_NAME = k.COLUMN_NAME 
+                                                                                                   and k.CONSTRAINT_NAME like 'PK%'
+	                                            where c.TABLE_NAME = @tableName";
+            da.SelectCommand.Parameters.AddWithValue("@tableName",tableName);
+
+            da.Fill(dt);
+
+            return dt;
+    }
+
+    public void SaveFile(string folder, string fileName, string content)
+	{
+		using (FileStream fs = new FileStream(Path.Combine(folder, fileName.Trim() + ".js"), FileMode.Create))
+		{
+			using (StreamWriter str = new StreamWriter(fs))
+			{
+				str.WriteLine(content);
+				str.Flush();
+			}
+		}
+	}
+#>

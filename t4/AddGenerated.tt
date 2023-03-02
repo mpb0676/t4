@@ -1,0 +1,134 @@
+<#@ template debug="true" hostSpecific="true" #>
+<#@ output extension=".cshtml" #>
+<#@ Assembly Name="System.Data" #>
+<#@ import namespace="System.Data" #>
+<#@ import namespace="System.Data.SqlClient" #>
+<#@ import namespace="System.IO" #>
+<#@ import namespace="System.Text.RegularExpressions" #>
+
+
+<#
+    DataTable tables = GetTables();
+	DataTable columns = null; 
+
+	var directory = Path.GetDirectoryName(this.Host.TemplateFile);
+	var entitiesPath = @"\ProjectName\FolderName";
+	var regExFilter = "(?<=src).+$";
+	var entitiesFolder = Regex.Replace(directory, regExFilter, entitiesPath);
+
+    foreach (DataRow row in tables.Rows)
+    {
+		var newFolder = Path.Combine(entitiesFolder, row["TABLE_NAME"].ToString());
+		CreateFolder(newFolder);
+    	columns = GetColumns(row["TABLE_NAME"].ToString());
+#>  
+@namespace MFRevMgr.Models
+@model List<<#= row["TABLE_NAME"].ToString() #>>
+
+<div class="blueBar">
+    <h5 class="modal-title" id="myModalLabel">
+        Add New Agreement
+        <button type="button" class="close" data-dismiss="modal" aria-hidden="true">X</button>
+    </h5>
+</div>
+
+<form>
+<#
+	foreach (DataRow cRows in columns.Rows)
+    {
+        if(cRows["isPrimaryKey"].ToString() == "0") 
+        {
+#>
+    <div class="form-group row">
+        <label for="<#= cRows["COLUMN_NAME"].ToString() #>" class="col-sm-3 col-form-label"><#= cRows["COLUMN_NAME"].ToString() #>:</label>
+        <div class="col-sm-4">
+            <input type="text" class="form-control-plaintext" id="<#= cRows["COLUMN_NAME"].ToString() #>" required>
+        </div>
+    </div>
+<#
+        }
+	}
+#>
+    <div class="row">
+        <div class="col-sm-3">
+            <button type="button" class="btn btn-primary pull-right" id="cmdInsert" onclick="Insert();">Add</button>
+        </div>
+        <div class="col-sm-4">
+            <input type="reset" class="btn btn-primary pull-right" id="reset" name="Clear Form" title="Clear Form" value="Clear Form">
+        </div>
+    </div>
+</form>
+
+<#
+	SaveFile(entitiesFolder, row["TABLE_NAME"].ToString(),"_Add", this.GenerationEnvironment.ToString());
+	this.GenerationEnvironment.Remove(0, this.GenerationEnvironment.Length);
+    }
+#>
+
+<#+
+    private string Pascalize(object value)
+    {
+        Regex rx = new Regex(@"(?:[^a-zA-Z0-9]*)(?<first>[a-zA-Z0-9])(?<reminder>[a-zA-Z0-9]*)(?:[^a-zA-Z0-9]*)");
+        return rx.Replace(value.ToString(), m => m.Groups["first"].ToString().ToUpper() + m.Groups["reminder"].ToString().ToLower());
+    }
+
+    private DataTable GetTables()
+    {
+            DataTable dt = new("TableNames");
+            string connectionString = "";
+
+            using SqlConnection conn = new(connectionString);
+            using SqlDataAdapter da = new(conn.CreateCommand());
+
+            da.SelectCommand.CommandType = CommandType.Text;
+            da.SelectCommand.CommandText = "SELECT  TABLE_NAME FROM INFORMATION_SCHEMA.TABLES t where t.TABLE_TYPE = 'BASE TABLE' ORDER BY t.Table_Name";
+
+            da.Fill(dt);
+
+            return dt;
+    }
+
+    private DataTable GetColumns(string tableName)
+    {
+            DataTable dt = new("Columns");
+            string connectionString = "";
+
+            using SqlConnection conn = new(connectionString);
+            using SqlDataAdapter da = new(conn.CreateCommand());
+
+            da.SelectCommand.CommandType = CommandType.Text;
+            da.SelectCommand.CommandText = @"select c.TABLE_NAME,
+		                                            c.COLUMN_NAME,
+		                                            c.ORDINAL_POSITION,
+		                                            c.IS_NULLABLE,
+		                                            isNull(k.CONSTRAINT_NAME,'') as CONSTRAINT_NAME,
+                                                    case when isNull(k.CONSTRAINT_NAME,'') like 'PK%' then 1 else 0 end as isPrimaryKey
+		                                            from INFORMATION_SCHEMA.columns c 
+		                                            left join INFORMATION_SCHEMA.KEY_COLUMN_USAGE k on c.TABLE_NAME = k.TABLE_NAME 
+                                                                                                   and c.COLUMN_NAME = k.COLUMN_NAME 
+                                                                                                   and k.CONSTRAINT_NAME like 'PK%'
+	                                            where c.TABLE_NAME = @tableName";
+            da.SelectCommand.Parameters.AddWithValue("@tableName",tableName);
+
+            da.Fill(dt);
+
+            return dt;
+    }
+
+    public void CreateFolder(string folder)
+    {
+        if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+    }
+
+	public void SaveFile(string folder, string fileName,string viewName, string content)
+	{
+		using (FileStream fs = new FileStream(Path.Combine(folder, fileName.Trim(), viewName + ".cshtml"), FileMode.Create))
+		{
+			using (StreamWriter str = new StreamWriter(fs))
+			{
+				str.WriteLine(content);
+				str.Flush();
+			}
+		}
+	}
+#>

@@ -1,0 +1,114 @@
+﻿<#@ template debug="true" hostSpecific="true" #>
+<#@ output extension=".generated.cs" #>
+<#@ Assembly Name="System.Data" #>
+<#@ import namespace="System.Data" #>
+<#@ import namespace="System.Data.SqlClient" #>
+<#@ import namespace="System.IO" #>
+<#@ import namespace="System.Text.RegularExpressions" #>
+
+using MFRevMgr.Models;
+using MFRevMgr.DAL.Generated;
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Threading.Tasks;
+
+namespace MFRevMgr.BLL.Generated
+{
+<#
+    DataTable tables = GetTables();
+#>
+
+    public interface ILogic<T>
+    {
+        Task<List<T>> GetAsync(int? id);
+        Task InsertAsync(T obj);
+        Task InsertAsync(List<T> obj);
+        Task InsertAsync(DataTable obj);
+        Task UpdateAsync(T obj);
+        Task DeleteAsync(int id);
+        Task Process(int id);
+    }
+
+<#
+    foreach (DataRow row in tables.Rows)
+    {
+#>  
+    //TODO: Add DI for all created Logic and DataAccess to the services scope.
+    //    : Startup.cs ConfigureServices() method.
+    /*
+        services.AddScoped<ILogic<<#= row["TABLE_NAME"].ToString() #>>, <#= row["TABLE_NAME"].ToString() #>Logic<<#= row["TABLE_NAME"].ToString() #>>>();
+        services.AddScoped<IDataAccess<<#= row["TABLE_NAME"].ToString() #>>, <#= row["TABLE_NAME"].ToString() #>DataAccess<<#= row["TABLE_NAME"].ToString() #>>>();
+    */
+
+    public partial class <#= row["TABLE_NAME"].ToString() #>Logic<T> :  ILogic<T> where T : <#= row["TABLE_NAME"].ToString() #>
+    {
+        private readonly IDataAccess<T> _dataAccess = null;
+
+        public <#= row["TABLE_NAME"].ToString() #>Logic(IDataAccess<T> dataAccess) 
+        {
+            _dataAccess = dataAccess;
+        }
+
+        public async Task DeleteAsync(int id)
+        {
+            await _dataAccess.DeleteAsync(id);
+        }
+
+        public async Task<List<T>> GetAsync(int? id)
+        {
+            return await _dataAccess.GetAsync(id);
+        }
+
+        public async Task InsertAsync(T obj)
+        {
+            await _dataAccess.InsertAsync(obj);
+        }
+
+        public async Task InsertAsync(List<T> obj)
+        {
+            await _dataAccess.InsertAsync(obj);
+        }
+
+        public async Task InsertAsync(DataTable obj)
+        {
+            await _dataAccess.InsertAsync(obj);
+        }
+
+        public async Task Process(int id)
+        {
+            throw new NotImplementedException();
+        }
+
+        public async Task UpdateAsync(T obj)
+        {
+            await _dataAccess.UpdateAsync(obj);
+        }
+    }
+<#
+    }
+#>
+}
+<#+
+    private string Pascalize(object value)
+    {
+        Regex rx = new Regex(@"(?:[^a-zA-Z0-9]*)(?<first>[a-zA-Z0-9])(?<reminder>[a-zA-Z0-9]*)(?:[^a-zA-Z0-9]*)");
+        return rx.Replace(value.ToString(), m => m.Groups["first"].ToString().ToUpper() + m.Groups["reminder"].ToString().ToLower());
+    }
+
+    private DataTable GetTables()
+    {
+            DataTable dt = new("TableNames");
+            string connectionString = "";
+
+            using SqlConnection conn = new(connectionString);
+            using SqlDataAdapter da = new(conn.CreateCommand());
+
+            da.SelectCommand.CommandType = CommandType.Text;
+            da.SelectCommand.CommandText = @"SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES t where t.TABLE_TYPE = 'BASE TABLE' ORDER BY t.TABLE_NAME";
+
+            da.Fill(dt);
+
+            return dt;
+    }
+#>

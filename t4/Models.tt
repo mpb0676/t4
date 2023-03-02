@@ -1,0 +1,129 @@
+﻿<#@ template debug="true" hostSpecific="true" #>
+<#@ output extension=".generated.cs" #>
+<#@ Assembly Name="System.Data" #>
+<#@ import namespace="System.Data" #>
+<#@ import namespace="System.Data.SqlClient" #>
+<#@ import namespace="System.IO" #>
+<#@ import namespace="System.Text.RegularExpressions" #>
+
+using System;
+using System.Collections.Generic;
+
+namespace MFRevMgr.Models
+{
+
+<#
+    DataTable tables = GetTables();
+	DataTable columns = null; 
+
+    foreach (DataRow row in tables.Rows)
+    {
+#>  
+    public partial class <#= row["TABLE_NAME"].ToString() #>
+    {
+<#
+	columns = GetColumns(row["TABLE_NAME"].ToString());
+	foreach (DataRow cRows in columns.Rows)
+    {
+#>
+	<#= cRows["ColumnString"].ToString() #>
+<#
+	}
+#>
+    }
+
+<#
+    }
+#>
+}
+<#+
+    private string Pascalize(object value)
+    {
+        Regex rx = new Regex(@"(?:[^a-zA-Z0-9]*)(?<first>[a-zA-Z0-9])(?<reminder>[a-zA-Z0-9]*)(?:[^a-zA-Z0-9]*)");
+        return rx.Replace(value.ToString(), m => m.Groups["first"].ToString().ToUpper() + m.Groups["reminder"].ToString().ToLower());
+    }
+
+    private DataTable GetTables()
+    {
+            DataTable dt = new("TableNames");
+            string connectionString = "";
+
+            using SqlConnection conn = new(connectionString);
+            using SqlDataAdapter da = new(conn.CreateCommand());
+
+            da.SelectCommand.CommandType = CommandType.Text;
+            da.SelectCommand.CommandText = "SELECT  TABLE_NAME FROM INFORMATION_SCHEMA.TABLES t where t.TABLE_TYPE = 'BASE TABLE' ORDER BY t.Table_Name";
+
+            da.Fill(dt);
+
+            return dt;
+    }
+
+    private DataTable GetColumns(string tableName)
+    {
+            DataTable dt = new("Columns");
+            string connectionString = "";
+
+            using SqlConnection conn = new(connectionString);
+            using SqlDataAdapter da = new(conn.CreateCommand());
+
+            da.SelectCommand.CommandType = CommandType.Text;
+            da.SelectCommand.CommandText = @"select '    public ' + ColumnType + NullableSign + ' ' + ColumnName + ' { get; set; }'  as ColumnString
+												from
+												(
+													select 
+														replace(col.name, ' ', '_') ColumnName,
+														column_id ColumnId,
+														case typ.name 
+															when 'bigint' then 'long'
+															when 'binary' then 'byte[]'
+															when 'bit' then 'bool'
+															when 'char' then 'string'
+															when 'date' then 'DateTime'
+															when 'datetime' then 'DateTime'
+															when 'datetime2' then 'DateTime'
+															when 'datetimeoffset' then 'DateTimeOffset'
+															when 'decimal' then 'decimal'
+															when 'float' then 'double'
+															when 'image' then 'byte[]'
+															when 'int' then 'int'
+															when 'money' then 'decimal'
+															when 'nchar' then 'string'
+															when 'ntext' then 'string'
+															when 'numeric' then 'decimal'
+															when 'nvarchar' then 'string'
+															when 'real' then 'float'
+															when 'smalldatetime' then 'DateTime'
+															when 'smallint' then 'short'
+															when 'smallmoney' then 'decimal'
+															when 'text' then 'string'
+															when 'time' then 'TimeSpan'
+															when 'timestamp' then 'long'
+															when 'tinyint' then 'byte'
+															when 'uniqueidentifier' then 'Guid'
+															when 'varbinary' then 'byte[]'
+															when 'varchar' then 'string'
+															else 'UNKNOWN_' + typ.name
+														end ColumnType,
+														case 
+															when col.is_nullable = 1 and typ.name in ('bigint', 'bit', 'date', 'datetime', 'datetime2', 'datetimeoffset', 'decimal', 'float', 'int', 'money', 'numeric', 'real', 'smalldatetime', 'smallint', 'smallmoney', 'time', 'tinyint', 'uniqueidentifier') 
+															then '?' 
+															else '' 
+														end NullableSign
+													from sys.columns col
+														join sys.types typ on
+															col.system_type_id = typ.system_type_id AND col.user_type_id = typ.user_type_id
+													where object_id = object_id(@TableName)
+												) t
+												order by ColumnId ";
+            da.SelectCommand.Parameters.AddWithValue("@TableName",tableName);
+
+
+            da.Fill(dt);
+
+            return dt;
+    }
+
+
+
+#>
